@@ -57,14 +57,26 @@ with tab1:
 with tab2:
     st.header("Why it happened: what separates playoff teams?")
     feats = ["pf_pg", "pa_pg", "to_margin_pg", "off_epa", "def_epa", "win_pct"]
+    feature_labels = {
+        "pf_pg": "Points Scored Per Game",
+        "pa_pg": "Points Allowed Per Game",
+        "to_margin_pg": "Turnover Margin Per Game",
+        "off_epa": "Offensive Expected Points Added (EPA)",
+        "def_epa": "Defensive Expected Points Added (EPA)",
+        "win_pct": "Win Percentage",
+        "made_playoffs": "Made Playoffs",
+    }
     corr = hist[feats + ["made_playoffs"]].corr()
-    fig = px.imshow(corr, text_auto=".2f", color_continuous_scale="RdBu",
+    display_corr = corr.rename(index=feature_labels, columns=feature_labels)
+    fig = px.imshow(display_corr, text_auto=".2f", color_continuous_scale="RdBu",
                     zmin=-1, zmax=1, title="Correlation heatmap (2015-last finished season)")
     st.plotly_chart(fig)
 
-    x = st.selectbox("Stat to compare against win %", feats[:-1])
+    x = st.selectbox("Stat to compare against win %", feats[:-1],
+                     format_func=lambda name: feature_labels[name])
     plot = hist.assign(playoffs=hist.made_playoffs.map({1: "Made", 0: "Missed"}))
-    fig = px.scatter(plot, x=x, y="win_pct", color="playoffs", hover_data=["team", "season"])
+    fig = px.scatter(plot, x=x, y="win_pct", color="playoffs", hover_data=["team", "season"],
+                     labels={**feature_labels, "playoffs": "Playoff Result"})
     m, b = np.polyfit(hist[x], hist.win_pct, 1)
     xs = np.linspace(hist[x].min(), hist[x].max(), 50)
     fig.add_scatter(x=xs, y=m * xs + b, mode="lines", name="trend line")
@@ -72,8 +84,8 @@ with tab2:
 
     c = corr["made_playoffs"].drop(["made_playoffs", "win_pct"])
     best = c.abs().idxmax()
-    st.info(f"Takeaway: '{best}' has the strongest link to making the playoffs "
-            f"(correlation {c[best]:+.2f}). Note: lower def_epa and pa_pg are better, "
+    st.info(f"Takeaway: '{feature_labels[best]}' has the strongest link to making the playoffs "
+            f"(correlation {c[best]:+.2f}). Note: lower Defensive EPA and Points Allowed Per Game are better, "
             f"so negative correlations there are good.")
 
 # ---------------- 3. PREDICTIVE ----------------
@@ -103,7 +115,7 @@ with tab3:
     p = cur.sort_values("playoff_prob", ascending=False)
     fig = px.bar(p, x="team", y="playoff_prob", title=f"Playoff probability by team, {latest}",
                  labels={"playoff_prob": "Probability"})
-    fig.update_yaxes(tickformat=".0%")
+    fig.update_yaxes(tickformat=".0%", range=[0, 1])
     fig.update_traces(hovertemplate="%{x}: %{y:.2%}<extra></extra>")
     st.plotly_chart(fig)
     top_probability = p.iloc[0].playoff_prob
