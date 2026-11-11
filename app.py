@@ -125,6 +125,101 @@ with tab3:
             f"points allowed, and turnover margin per game, trained on {done[0]}-{done[-2]} "
             f"and tested on {test_season}. Early-season stats are noisy, so treat these as a snapshot.")
 
+    # BEGIN PLAYOFF BRACKET ADDITION (Predictive tab only)
+    st.subheader("Projected 14-Team Playoff Bracket")
+    st.caption("Model-selected field • Seeds use current win percentage • Not official NFL standings")
+    divisions = {
+        "AFC East": ["BUF", "MIA", "NE", "NYJ"],
+        "AFC North": ["BAL", "CIN", "CLE", "PIT"],
+        "AFC South": ["HOU", "IND", "JAX", "TEN"],
+        "AFC West": ["DEN", "KC", "LAC", "LV"],
+        "NFC East": ["DAL", "NYG", "PHI", "WAS"],
+        "NFC North": ["CHI", "DET", "GB", "MIN"],
+        "NFC South": ["ATL", "CAR", "NO", "TB"],
+        "NFC West": ["ARI", "LA", "LAR", "SEA", "SF"],
+    }
+    team_names = dict(zip(
+        "ARI ATL BAL BUF CAR CHI CIN CLE DAL DEN DET GB HOU IND JAX KC LA LAR LAC LV MIA MIN NE NO NYG NYJ PHI PIT SEA SF TB TEN WAS".split(),
+        ["Cardinals", "Falcons", "Ravens", "Bills", "Panthers", "Bears", "Bengals", "Browns", "Cowboys", "Broncos", "Lions", "Packers", "Texans", "Colts", "Jaguars", "Chiefs", "Rams", "Rams", "Chargers", "Raiders", "Dolphins", "Vikings", "Patriots", "Saints", "Giants", "Jets", "Eagles", "Steelers", "Seahawks", "49ers", "Buccaneers", "Titans", "Commanders"]))
+    bracket_fields = {}
+    for conference in ["AFC", "NFC"]:
+        conference_divisions = {k: v for k, v in divisions.items() if k.startswith(conference)}
+        members = [t for group in conference_divisions.values() for t in group]
+        ranked = cur[cur.team.isin(members)].sort_values(
+            ["playoff_prob", "team"], ascending=[False, True])
+        winners = [ranked[ranked.team.isin(group)].iloc[0].team
+                   for group in conference_divisions.values()]
+        seed_order = ["win_pct", "playoff_prob", "team"]
+        champions = ranked[ranked.team.isin(winners)].sort_values(
+            seed_order, ascending=[False, False, True])
+        wildcards = ranked[~ranked.team.isin(winners)].head(3).sort_values(
+            seed_order, ascending=[False, False, True])
+        field = pd.concat([champions, wildcards]).copy()
+        field["seed"] = range(1, 8)
+        field["berth"] = ["Division winner"] * 4 + ["Wild card"] * 3
+        bracket_fields[conference] = field
+
+    def bracket_card(row, bye=False):
+        label = "FIRST-ROUND BYE" if bye else f"{row.playoff_prob:.2%} playoff probability"
+        return (f'<div class="team"><b class="seed">{int(row.seed)}</b>'
+                f'<div><strong>{row.team} · {team_names[row.team]}</strong>'
+                f'<small>{label}</small></div></div>')
+
+    def conference_panel(conference):
+        field = bracket_fields[conference].set_index("seed", drop=False)
+        games = "".join('<div class="match">' + bracket_card(field.loc[hi])
+                        + bracket_card(field.loc[lo]) + '</div>'
+                        for hi, lo in [(2, 7), (3, 6), (4, 5)])
+        return (f'<section class="conference {conference.lower()}"><h2>{conference}</h2>'
+                '<div class="rounds"><div><h3>WILD CARD</h3>'
+                + bracket_card(field.loc[1], True) + games
+                + '</div><div class="later"><h3>DIVISIONAL</h3>'
+                '<div class="pending">No. 1 seed vs.<br>lowest remaining seed</div>'
+                '<div class="pending">Other two<br>Wild Card winners</div>'
+                '<h3>CONFERENCE TITLE</h3><div class="pending">Divisional winners</div>'
+                '</div></div></section>')
+
+    bracket_html = '''<style>
+    *{box-sizing:border-box}body{margin:0;font-family:Arial,sans-serif;color:#edf3ff;background:#0d1524}
+    .board{padding:22px;border:1px solid #293951;border-radius:15px;min-width:920px}
+    .eyebrow{color:#a9b8cf;letter-spacing:3px;font-size:11px;text-align:center}
+    h1{text-align:center;font-size:24px;margin:10px 0 24px}h2{font-size:30px;margin:0 0 14px}
+    h3{font-size:10px;letter-spacing:1.4px;color:#a9b8cf;margin:12px 0}
+    .layout{display:grid;grid-template-columns:1fr 150px 1fr;gap:20px;align-items:center}
+    .rounds{display:grid;grid-template-columns:1.4fr 1fr;gap:20px}.nfc h2{color:#62adff}.afc h2{color:#ff6878}
+    .team{display:flex;align-items:center;gap:10px;background:#1c2a40;padding:10px;border-radius:7px;margin:3px 0;min-height:54px}
+    .seed{background:#34465f;border-radius:4px;padding:5px;font-size:15px}.team strong{font-size:12px}
+    small{display:block;font-size:10px;color:#b4c3db;margin-top:5px}.match{margin-top:16px;border-left:3px solid #6b7e99;padding-left:7px}
+    .later{padding-top:62px}.pending{border:1px solid #465875;border-radius:7px;padding:17px 10px;margin:20px 0;color:#b4c3db;font-size:12px;line-height:1.5}
+    .bowl{text-align:center;border-top:2px solid #d1ad63;border-bottom:2px solid #d1ad63;padding:25px 4px;color:#e9ce94}
+    .bowl strong{display:block;font-size:24px;margin:8px 0 15px}.bowl p{font-size:12px;line-height:1.6;color:#d1dced}
+    .footer{text-align:center;color:#98abc7;font-size:11px;margin-top:20px}
+    </style><div class="board"><div class="eyebrow">MODEL PROJECTIONS</div>'''
+    bracket_html += f'<h1>{latest} NFL PLAYOFF BRACKET</h1><div class="layout">'
+    bracket_html += conference_panel("AFC")
+    bracket_html += ('<div class="bowl">SUPER BOWL<strong>LXI</strong>'
+                     '<p>AFC Champion<br>vs.<br>NFC Champion</p><small>To be determined</small></div>')
+    bracket_html += conference_panel("NFC")
+    bracket_html += ('</div><div class="footer">Future-round winners are not predicted. '
+                     'Divisional matchups are reseeded after the Wild Card round.</div></div>')
+    import streamlit.components.v1 as components
+    components.html(bracket_html, height=740, scrolling=True)
+    st.caption("Selection method: highest model probability in each division, then the three highest "
+               "remaining probabilities per conference. Division winners receive seeds 1–4; wild cards "
+               "receive seeds 5–7, ordered within each group by current win percentage. Ties use model "
+               "probability, then team code—not the full NFL tiebreakers. These are illustrative seeds, "
+               "not a forecast of final records or an official playoff picture.")
+    bracket_columns = st.columns(2)
+    for column, conference in zip(bracket_columns, ["AFC", "NFC"]):
+        with column:
+            st.markdown(f"**{conference} projected field**")
+            display_field = bracket_fields[conference].copy()
+            display_field["Team"] = display_field.team.map(lambda t: f"{t} — {team_names[t]}")
+            display_field["Playoff probability"] = display_field.playoff_prob.map(lambda v: f"{v:.2%}")
+            st.dataframe(display_field.rename(columns={"seed": "Seed", "berth": "Berth"})[
+                ["Seed", "Team", "Berth", "Playoff probability"]], hide_index=True)
+    # END PLAYOFF BRACKET ADDITION
+
 # ---------------- 4. PRESCRIPTIVE ----------------
 def prob(pf, pa, to):
     return final.predict_proba(pd.DataFrame([[pf, pa, to]], columns=FEATS))[0, 1]
